@@ -3,7 +3,7 @@ Solver for equations 10 and 14 from https://ui.adsabs.harvard.edu/abs/2019MNRAS.
 ## dependencies:
 - numpy
 - scipy
-- matplotlib, pyqt5 (optional, for visualization)
+- matplotlib (optional, for visualization. Matplotlib may need a backend for visualization)
 
 ## Install
 - clone the repo

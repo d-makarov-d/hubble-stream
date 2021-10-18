@@ -5,6 +5,8 @@ from typing import Union, Callable
 import numpy as np
 import scipy.integrate as integrate
 from scipy import optimize
+from astropy.cosmology import WMAP9 as cosmo
+# TODO stick to astropy Quantity
 # The solver operates equally on numbers and arrays
 Data = Union[np.ndarray, float]
 
@@ -22,19 +24,23 @@ class Solver:
         omega = self.options.omega_m_0
         self.const_part = 2 / 3 * np.arccosh(omega ** -0.5)
 
-    def dep(self, U: float, a: float) -> Data:
+    def dep(self, h: float, a: float) -> Data:
         """
         Describes the dependency, from equation 10
-        :param U: Variable
+        :param h: Variable
         :param a: Variable
         :return: Function calculation result
+        TODO compute U using h
         """
+        O = self.options.omega_m_0
+        H0 = self.options.H0
+        U = (h / H0) ** 2 / O
         if U == 0:
             integ_func = lambda x: 2 * np.sqrt((1 - x ** 2) / (a - (1 - x ** 2) * (2 - x ** 2)))
         else:
             integ_func = lambda x: np.sqrt(x / (x ** 3 + (U - a - 1) * x + a))
 
-        if U >= 0:
+        if h >= 0:
             # equation [10]
             integ_part, _ = integrate.quad(integ_func, 0, 1)
         else:
@@ -54,34 +60,34 @@ class Solver:
 
         return integ_part - self.const_part
 
-    def _U(self, a: float) -> float:
-        return optimize.newton_krylov(lambda U: self.dep(U, a), 0)
+    def _h(self, a: float) -> float:
+        return optimize.newton_krylov(lambda h: self.dep(h, a), 0)
 
-    def _a(self, U: float) -> float:
-        return optimize.brentq(lambda a: self.dep(U, a), 2 + 1e-10, 15)
+    def _a(self, h: float) -> float:
+        return optimize.brentq(lambda a: self.dep(h, a), 2 + 1e-10, 15)
 
-    def U(self, a: Data) -> Data:
+    def h(self, a: Data) -> Data:
         """
-        Solution for dep(U, a=a) == 0
+        Solution for dep(h, a=a) == 0
         :param a: values for which the equation needs to be solved
         :return: Solution, same shape as a
         """
-        return _apply_to_data(a, self._U)
+        return _apply_to_data(a, self._h)
 
-    def a(self, U: Data) -> Data:
+    def a(self, h: Data) -> Data:
         """
-        Solution for dep(U=U, a) == 0
-        :param U: values for which the equation needs to be solved
+        Solution for dep(h=h, a) == 0
+        :param h: values for which the equation needs to be solved
         :return: Solution, same shape as U
         """
-        # TODO
-        return _apply_to_data(U, self._a)
+        return _apply_to_data(h, self._a)
 
 
 class SolverOptions:
     """Holds options for the solver"""
-    def __init__(self, omega_m_0=0.0):
+    def __init__(self, omega_m_0=0.0, H0=cosmo.H(0)):
         self._omega_m_0 = omega_m_0
+        self._H0 = H0
 
     def set_omega_m_0(self, val: float):
         self._omega_m_0 = val
@@ -90,3 +96,7 @@ class SolverOptions:
     @property
     def omega_m_0(self) -> float:
         return self._omega_m_0
+
+    @property
+    def H0(self) -> float:
+        return self._H0.value
