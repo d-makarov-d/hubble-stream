@@ -8,7 +8,7 @@ from scipy import optimize
 from eq_10 import Solver
 from observation_model import VelocityField, Galaxy
 from physics import PhysicOptions, Point, Halo, Empty
-from util import Vector, _cartesian_to_spherical, draw_vectors
+from util import Vector, _cartesian_to_spherical, draw_vectors, least_square_xy
 from files import load_vizier
 
 
@@ -28,16 +28,13 @@ def _rand_norm(d: float):
 
 
 class ZeroField(VelocityField):
-    def field(self, coord: Vector) -> Vector:
+    def field(self, coord: Vector, *params) -> Vector:
         return Vector.get_cart([0, 0, 0])
 
 
 class LinearField(VelocityField):
-    def __init__(self, h0: float):
-        self.h0 = h0
-
-    def field(self, coord: Vector) -> Vector:
-        return Vector.get_sph([self.h0 * (coord.r - 1), coord.lat, coord.lon])
+    def field(self, coord: Vector, h0) -> Vector:
+        return Vector.get_sph([h0 * (coord.r - 1), coord.lat, coord.lon])
 
 
 class Test(unittest.TestCase):
@@ -103,6 +100,26 @@ class Test(unittest.TestCase):
 
         self.assertTrue(max(alpha - a) < np.finfo(float).eps ** 0.5)
 
+    def test_laq(self):
+        fun = lambda x: 3 * x**2 + 12
+        x = np.linspace(0, 3, 100)
+        y = fun(x)
+        y += np.random.normal(0, y * 0.1)
+
+        f = lambda p: y - (p[0] * x**2 + p[1])
+
+        res = optimize.least_squares(f, [1, 0])
+        expected_res = res.x
+        cov = np.linalg.inv(res.jac.T.dot(res.jac))
+        var = np.sqrt(np.diagonal(cov))
+        sigma = (sum(res.fun ** 2) / len(res.fun)) ** 0.5
+        expected_err = var * sigma
+
+        res, err = least_square_xy(f, [1, 0])
+
+        print((expected_res, expected_err))
+        print((res, err))
+
 
 class TestFiles(unittest.TestCase):
     def test_load_vizier(self):
@@ -111,6 +128,23 @@ class TestFiles(unittest.TestCase):
         vels = [gal.velocity for gal in gals.values()]
         vels = [Vector.get_sph([v, c.lat, c.lon]) for v, c in zip(vels, coords)]
         draw_vectors(coords, vels, norm_len=30)
+
+    def _test_save_matlab(self):
+        gals = load_vizier(['data/table2.dat'], ['data/vel1.dat'])
+        from scipy.io import savemat
+        names = [n for n in gals.keys()]
+        vels = [gal.velocity for gal in gals.values()]
+        dists = [gal.coordinates.r for gal in gals.values()]
+        de = [gal.coordinates.lat for gal in gals.values()]
+        ra = [gal.coordinates.lon for gal in gals.values()]
+        data = {
+            'names': names,
+            'velocities': vels,
+            'distance': dists,
+            'DERad': de,
+            'RARad': ra
+        }
+        savemat('data/galaxies.mat', data)
 
 
 class VectorTest(unittest.TestCase):
@@ -174,7 +208,7 @@ class ModelTest(unittest.TestCase):
             for coord, vel in zip(coords, vels)
         ]
         observations = [Galaxy(mw_coord - coord, vel) for coord, vel in zip(coords, obs_vels)]
-        res = VelocityField.observer_velocity(observations)
+        res, _ = VelocityField.observer_velocity(observations)
 
         print(res)
         print(mw_vel)
@@ -186,24 +220,25 @@ class ModelTest(unittest.TestCase):
         r_min = 0.3
         n0 = 1000
         h0 = 73.
-        model = LinearField(h0)
+        model = LinearField()
 
         coord_arr = np.random.uniform(3 * [-r], 3 * [r], (n0, 3))
         coords = [Vector(row) for row in coord_arr]
         coords = tuple(filter(lambda v: r_min < v.r < r, coords))
-        vels = tuple(model.field(c) for c in coords)
+        vels = tuple(model.field(c, h0=h0) for c in coords)
 
         sun_coords = Vector(np.random.uniform(2, 3, 3))
-        sun_vel = model.field(sun_coords) * Vector.unit(Vector.get_cart(np.random.uniform(-1, 1, 3)))
+        sun_vel = model.field(sun_coords, h0=h0) * Vector.unit(Vector.get_cart(np.random.uniform(-1, 1, 3)))
 
         gals = tuple(
             Galaxy(coord - sun_coords, Vector.unit(coord - sun_coords).dot(vel - sun_vel))
             for coord, vel in zip(coords, vels)
         )
 
-        res_v, res_r = model.fit_model(gals)
+        res_v, res_r, p = model.fit_model(gals)
         print(f"R0:\n\texpected: {sun_coords}\n\tfound:    {res_r}")
         print(f"V0:\n\texpected: {sun_vel}\n\tfound:    {res_v}")
+        print(f"H0:\n\texpected: {h0}\n\tfound:    {p[0]}")
 
         self.assertTrue((res_v - sun_vel).r < np.finfo(float).eps ** 0.5)
         self.assertTrue((res_r - sun_coords).r < np.finfo(float).eps ** 0.5)
@@ -218,8 +253,11 @@ class ModelTest(unittest.TestCase):
 
         model = ZeroField()
 
-        res_v = model.observer_velocity(gals)
-        res_v1 = model.observer_velocity(group1)
-        res_v2 = model.observer_velocity(group2)
+        res_v, dv = model.observer_velocity(gals)
+        res_v1, dv1 = model.observer_velocity(group1)
+        res_v2, dv2 = model.observer_velocity(group2)
 
-        print(f"V0:\n\tgroup close: {res_v1}\n\tgroup far:  {res_v2}\n\tall: {res_v}")
+        print(f"V0:\n\t"
+              f"group close: {res_v1} +- {dv1}\n\t"
+              f"group far:   {res_v2} +- {dv2}\n\t"
+              f"all:         {res_v} +- {dv}")
