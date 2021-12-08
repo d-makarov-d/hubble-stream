@@ -3,3 +3,4 @@ scipy
 matplotlib
 astropy
 joblib
+git+https://github.com/d-makarov-d/vector-c.git@master#egg=vector-c

@@ -4,11 +4,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import random
 from scipy import optimize
+from astropy import units as u
 
 from eq_10 import Solver
 from observation_model import VelocityField, Galaxy
 from physics import PhysicOptions, Point, Halo, Empty
-from util import Vector, _cartesian_to_spherical, draw_vectors, least_square_xy
+from util import Vector, _cartesian_to_spherical, draw_vectors, least_square_xy, J
 from files import load_vizier
 
 
@@ -218,8 +219,8 @@ class ModelTest(unittest.TestCase):
     def test_simple_model(self):
         r = 10.
         r_min = 0.3
-        n0 = 1000
-        h0 = 73.
+        n0 = 500
+        h0 = 1
         model = LinearField()
 
         coord_arr = np.random.uniform(3 * [-r], 3 * [r], (n0, 3))
@@ -228,7 +229,7 @@ class ModelTest(unittest.TestCase):
         vels = tuple(model.field(c, h0=h0) for c in coords)
 
         sun_coords = Vector(np.random.uniform(2, 3, 3))
-        sun_vel = model.field(sun_coords, h0=h0) * Vector.unit(Vector.get_cart(np.random.uniform(-1, 1, 3)))
+        sun_vel = model.field(sun_coords, h0=h0) * Vector.unit(Vector.get_cart(np.random.uniform(-1, 1, 3))) * 10
 
         gals = tuple(
             Galaxy(coord - sun_coords, Vector.unit(coord - sun_coords).dot(vel - sun_vel))
@@ -261,3 +262,25 @@ class ModelTest(unittest.TestCase):
               f"group close: {res_v1} +- {dv1}\n\t"
               f"group far:   {res_v2} +- {dv2}\n\t"
               f"all:         {res_v} +- {dv}")
+
+        print('In Galactic coordinates')
+        print('Close group')
+        print(res_v1.coords_icrs(u.km / u.s).galactic)
+        print()
+        print('Far group')
+        print(res_v2.coords_icrs(u.km / u.s).galactic)
+        print()
+        print('Group all')
+        print(res_v.coords_icrs(u.km / u.s).galactic)
+        print()
+
+        def cart_to_gal(cart):
+            v = Vector.get_cart(cart)
+            gal = v.coords_icrs(u.km / u.s).galactic
+            return np.array([gal.l.radian, gal.b.radian, gal.distance.value])
+
+        for r, d in zip((res_v1, res_v2, res_v), (dv1, dv2, dv)):
+            jac = J(np.array(r.cart), cart_to_gal)
+            err = np.matmul(np.matmul(jac, d.cart), jac.T)
+            err[:2] = err[:2] / np.pi * 180
+            print(err)
