@@ -1,11 +1,13 @@
 """Some classes to describe physics and system properties"""
 # TODO stick to astropy Quantity
-from typing import Callable
+from typing import Callable, Union
 from abc import ABC, abstractmethod
 from astropy.cosmology import WMAP9 as cosmo
 from astropy.units import Quantity
 
 from eq_10 import Solver
+from observation_model import VelocityField
+from util import Vector
 
 
 class PhysicOptions:
@@ -60,3 +62,32 @@ class Halo(DensDistr):
 class Empty(DensDistr):
     def model(self, L0: float) -> Callable[[float], float]:
         return lambda r0: self.sigma * (L0 / r0) ** 3
+
+
+class DenseDistField(VelocityField):
+    def __init__(self, distribution: Union[str, DensDistr]):
+        name_to_class = {
+            'halo': Halo,
+            'point': Point,
+            'empty': Empty
+        }
+        if isinstance(distribution, str):
+            cls = name_to_class.get(distribution)
+            if cls is None:
+                raise ValueError('distribution must be in ["halo", "point", "empty"]')
+            opts = PhysicOptions(0.3)
+            self.distribution = cls(opts)
+            self.solver = Solver(opts)
+            self.options = opts
+        else:
+            self.distribution = distribution
+            self.solver = Solver(distribution._options)
+            self.options = distribution._options
+
+    def field(self, coord: Vector, L0) -> Vector:
+        profile = self.distribution.model(L0)
+        sigma = profile(coord.r)
+        alpha = sigma / self.options.omega_l_0
+        h = self.solver.h(alpha)
+        v = h * coord.r
+        return Vector.get_sph([v, coord.lat, coord.lon])

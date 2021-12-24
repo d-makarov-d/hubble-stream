@@ -34,6 +34,36 @@ def _decode_vizier_line(line: str) -> tuple[str, dict[str, Any]]:
     return read.pop('Name'), read
 
 
+def _decode_leda(file: str, fmt: dict) -> dict[str, dict]:
+    with open(file, 'r') as f:
+        header = f.readline()
+        col_names = header.split('|')
+        col_names = [name.strip(' \n') for name in col_names]
+        mask_selected = [name in fmt.keys() for name in col_names]
+        i_selected = np.arange(len(col_names))[mask_selected]
+        i_id = col_names.index('name')
+
+        def extract_cols(line: str) -> tuple[str, dict]:
+            values = line.split('|')
+            values = [val.strip(' ') for val in values]
+            res = {}
+            for i, key, cls in zip(i_selected, fmt.keys(), fmt.values()):
+                res[key] = cls(values[i])
+            return values[i_id], res
+
+        gals = {}
+        f.readline()
+        for line in f.readlines():
+            try:
+                gal_name, params = extract_cols(line)
+                gals[gal_name] = params
+            except ValueError:
+                # TODO use logger
+                print('Error importing row %s' % line, end='')
+
+        return gals
+
+
 class TexDecoder:
     def __init__(self, names: Sequence[str]):
         self.name_patt = r'[A-z][a-zA-z1-9]+'
@@ -164,3 +194,23 @@ def load_vizier(files: Iterable[str], vel: Iterable[str]) -> dict[str, Galaxy]:
             str(vel)
         ))"""
     return galaxies
+
+
+def load_leda(files: Iterable[str]):
+    dicts = dict()
+    data_format = {
+        'ra': float,
+        'dec': float,
+        'Dist': float,
+        'VLG': float
+    }
+    for file in files:
+        read = _decode_leda(file, data_format)
+        dicts.update(read)
+
+    gals = dict(
+        (k, Galaxy(Vector.get_sph([v['Dist'], v['dec'] / 180 * np.pi, v['ra'] / 180 * np.pi]), v['VLG']))
+        for k, v in dicts.items()
+    )
+
+    return gals

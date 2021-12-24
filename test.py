@@ -8,9 +8,9 @@ from astropy import units as u
 
 from eq_10 import Solver
 from observation_model import VelocityField, Galaxy
-from physics import PhysicOptions, Point, Halo, Empty
+from physics import PhysicOptions, Point, Halo, Empty, DenseDistField
 from util import Vector, _cartesian_to_spherical, draw_vectors, least_square_xy, J
-from files import load_vizier
+from files import load_vizier, load_leda
 
 
 def rand_sph(r: float) -> Vector:
@@ -29,13 +29,18 @@ def _rand_norm(d: float):
 
 
 class ZeroField(VelocityField):
-    def field(self, coord: Vector, *params) -> Vector:
+    def field(self, coord: Vector) -> Vector:
         return Vector.get_cart([0, 0, 0])
 
 
 class LinearField(VelocityField):
     def field(self, coord: Vector, h0) -> Vector:
         return Vector.get_sph([h0 * (coord.r - 1), coord.lat, coord.lon])
+
+
+class LinearFieldBiased(VelocityField):
+    def field(self, coord: Vector, a, b) -> Vector:
+        return Vector.get_sph([a * coord.r + b, coord.lat, coord.lon])
 
 
 class Test(unittest.TestCase):
@@ -171,6 +176,24 @@ class VectorTest(unittest.TestCase):
 
 
 class ModelTest(unittest.TestCase):
+    def test_vector_field(self):
+        field = LinearField()
+        h0 = 2
+        M = Vector([1, -3, 3])  # Milky way coord
+        T = Vector([-2, 6, 2])  # Observed galaxy
+        v0 = Vector.get_sph([h0 * (M.r - 1), M.lat, M.lon])  # MW velocity
+        vt = Vector.get_sph([h0 * (T.r - 1), T.lat, T.lon])  # Observed galaxy velocity
+
+        self.assertEqual(field.field(M, h0), v0)
+        self.assertEqual(field.field(T, h0), vt)
+
+        r = T - M  # from MW to object
+        v_obs_expected = Vector.unit(r).dot(vt - v0)
+
+        v_obs = field.velocity(M, v0, r, h0)
+
+        print((v_obs_expected, v_obs))
+
     def test_dot_field(self):
         n_points = 100
         err = 0.1
@@ -236,7 +259,7 @@ class ModelTest(unittest.TestCase):
             for coord, vel in zip(coords, vels)
         )
 
-        res_v, res_r, p = model.fit_model(gals)
+        res_v, res_r, p, _ = model.fit_model(gals)
         print(f"R0:\n\texpected: {sun_coords}\n\tfound:    {res_r}")
         print(f"V0:\n\texpected: {sun_vel}\n\tfound:    {res_v}")
         print(f"H0:\n\texpected: {h0}\n\tfound:    {p[0]}")
@@ -284,3 +307,54 @@ class ModelTest(unittest.TestCase):
             err = np.matmul(np.matmul(jac, d.cart), jac.T)
             err[:2] = err[:2] / np.pi * 180
             print(err)
+
+    def test_lv_unverial_plot(self):
+        gals = load_leda(['data/lv.dat'])
+        mw = gals['Milky Way']
+        andromeda = gals['MESSIER031']
+        center = mw.coordinates + (andromeda.coordinates - mw.coordinates) * 0.5
+        gals = dict((k, Galaxy(v.coordinates - center, v.velocity)) for k, v in gals.items())
+
+        dists = np.array([g.coordinates.r for g in gals.values()])
+        vels = np.array([g.velocity for g in gals.values()])
+
+        a, b = np.polyfit(dists, vels, 1)
+        x = np.array([min(dists), max(dists)])
+        _, ax = plt.subplots(1, 2)
+        ax[0].scatter(dists, vels)
+        ax[0].plot(x, x * a + b, 'r')
+        ax[0].set_title('Velocities')
+        ax[0].set_xlabel('distance')
+        ax[0].set_ylabel('velocity')
+        for i, txt in enumerate(gals.keys()):
+            ax[0].annotate(txt, (dists[i] - 0.03 * len(txt) / 2, vels[i] + 4))
+        pec_v = vels - (dists * a + b)
+        ax[1].hist(pec_v)
+        ax[1].set_title('Pecular velocities')
+        plt.show()
+
+    def test_lv_unverial_model_fit(self):
+        gals = load_leda(['data/lv.dat'])
+        invalid_gals = ['MESSIER031', 'Milky Way', 'HIZOA J1353-58', 'ESO006-001', 'dw1322-39']
+        for g in invalid_gals:
+            gals.pop(g)
+        model = LinearFieldBiased()
+
+        res_v, res_r, p, errors = model.fit_model(tuple(gals.values()), [0, 0, 0, 1, 1, 1, 60, 60])
+
+        print(f"R0:    {res_r} +- {errors[:3]}")
+        print(f"V0:    {res_v} +- {errors[3:6]}")
+        print(f"a, b:  {p[0]}, {p[1]} +- {errors[6:]}")
+
+    def test_lv_unverial_point_model(self):
+        gals = load_leda(['data/lv.dat'])
+        invalid_gals = ['MESSIER031', 'Milky Way', 'HIZOA J1353-58', 'ESO006-001', 'dw1322-39']
+        for g in invalid_gals:
+            gals.pop(g)
+        model = DenseDistField('point')
+
+        res_v, res_r, p, errors = model.fit_model(tuple(gals.values()))
+
+        print(f"R0:    {res_r} +- {errors[:3]}")
+        print(f"V0:    {res_v} +- {errors[3:6]}")
+        print(f"L0:    {p[0]} +- {errors[6:]}")

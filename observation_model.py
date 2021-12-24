@@ -4,6 +4,7 @@ from typing import Iterable, Sequence
 from scipy import optimize
 import multiprocessing as mp
 from joblib import Parallel, delayed
+from inspect import signature
 
 from util import Vector
 
@@ -62,13 +63,15 @@ class VelocityField(ABC):
         sigma = (sum(res.fun ** 2) / len(res.fun)) ** 0.5
         return Vector.get_cart(res.x), Vector.get_cart(var * sigma)
 
-    def fit_model(self, galaxies: Iterable[Galaxy]) -> tuple[Vector, Vector, Sequence[float]]:
+    def fit_model(self, galaxies: Iterable[Galaxy], x0: np.ndarray = None) -> tuple[Vector, Vector, Sequence[float], np.ndarray]:
         """Fits the model to observation data, finding observer velocity and position
         :param galaxies: Observation data
+        :param x0: Initial guess
         :return
             res_v: Vector, Observer velocity
             res_r: Vector, Observer position
             res_p: Sequence[float], Model params
+            errors: np.ndarray, Errors [:3] for res_v, [3:6] for res_r, [6:] for other params
         """
         obs_vels = np.array(tuple(gal.velocity for gal in galaxies))
         n_jobs = mp.cpu_count() - 1
@@ -90,10 +93,18 @@ class VelocityField(ABC):
 
             return obs_vels - model_vels
 
-        res = optimize.least_squares(f, [0, 0, 0, 1, 1, 1, 1])
+        n_additional_params = len(signature(self.field).parameters) - 1
+        if x0 is None:
+            x0 = [0, 0, 0, 1, 1, 1] + n_additional_params * [1]
+        res = optimize.least_squares(f, x0)
         res_v = Vector.get_cart(res.x[:3])
         res_r = Vector.get_cart(res.x[3:6])
-        return res_v, res_r, res.x[6:]
+
+        cov = np.linalg.inv(res.jac.T.dot(res.jac))
+        var = np.sqrt(np.diagonal(cov))
+        sigma = (sum(res.fun ** 2) / len(res.fun)) ** 0.5
+
+        return res_v, res_r, res.x[6:], var * sigma
 
     @abstractmethod
     def field(self, coord: Vector, *params) -> Vector:
