@@ -43,6 +43,31 @@ class LinearFieldBiased(VelocityField):
         return Vector.get_sph([a * coord.r + b, coord.lat, coord.lon])
 
 
+class ReferenceField(VelocityField):
+    def field(self, coord: Vector, h) -> Vector:
+        h *= int(coord.r > 1.5)
+        return Vector.get_sph([h * coord.r, coord.lat, coord.lon])
+
+    def fit_model(self, galaxies):
+        obs_vels = np.array(tuple(gal.velocity for gal in galaxies))
+
+        def f(v):
+            vel = Vector.get_cart(v[:3])
+            r = Vector.get_cart([0, 0, 0])
+            p = v[3:]
+            model_vels = np.zeros_like(obs_vels)
+            for i, gal in enumerate(galaxies):
+                model_vels[i] = self.velocity(r, vel, gal.coordinates, *p)
+                #model_vels[i] = -np.sum(np.array(Vector.unit(gal.coordinates).cart) * np.array(vel.cart))
+
+            return obs_vels - model_vels
+
+        res = optimize.least_squares(f, [0, 0, 0, 1])
+        res_v = Vector.get_cart(res.x[:3])
+
+        return res_v, res.x[3:]
+
+
 class Test(unittest.TestCase):
     def test_exact_solution(self):
         omega_m = (1e-10, 0.6)
@@ -309,7 +334,7 @@ class ModelTest(unittest.TestCase):
             print(err)
 
     def test_lv_unverial_plot(self):
-        gals = load_leda(['data/lv.dat'])
+        gals = load_leda(['data/lv.dat'], vel='VLG')
         mw = gals['Milky Way']
         andromeda = gals['MESSIER031']
         center = mw.coordinates + (andromeda.coordinates - mw.coordinates) * 0.5
@@ -358,3 +383,23 @@ class ModelTest(unittest.TestCase):
         print(f"R0:    {res_r} +- {errors[:3]}")
         print(f"V0:    {res_v} +- {errors[3:6]}")
         print(f"L0:    {p[0]} +- {errors[6:]}")
+
+    def test_reference(self):
+        """Compare new implementation to the reference implementation values"""
+        gals = load_leda(['data/reference.dat'], ra='l', dec='b', dist='Dist', vel='Vh').values()
+        ref_verial = [92.7, -2.3, 333]  # l, b, v
+        ref_unverial = [91.4, -0.3, 346, 66]  # l, b, v, h
+
+        gals_verial = tuple(filter(lambda g: g.coordinates.r < 1.5, gals))
+
+        z_field = ZeroField()
+        v, dv = z_field.observer_velocity(gals_verial)
+        l = v.lon / np.pi * 180
+        b = v.lat / np.pi * 180
+        self.assertEqual(ref_verial, [np.round(l, 1), np.round(b, 1), np.round(v.r)])
+
+        r_field = ReferenceField()
+        v, h = r_field.fit_model(gals)
+        l = v.lon / np.pi * 180
+        b = v.lat / np.pi * 180
+        self.assertEqual(ref_unverial, [np.round(l, 1), np.round(b, 1), np.round(v.r), np.round(h)])

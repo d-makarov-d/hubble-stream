@@ -196,20 +196,20 @@ def load_vizier(files: Iterable[str], vel: Iterable[str]) -> dict[str, Galaxy]:
     return galaxies
 
 
-def load_leda(files: Iterable[str]):
+def load_leda(files: Iterable[str], ra='ra', dec='dec', dist='Dist', vel='Vh'):
     dicts = dict()
     data_format = {
-        'ra': float,
-        'dec': float,
-        'Dist': float,
-        'VLG': float
+        ra: float,
+        dec: float,
+        dist: float,
+        vel: float
     }
     for file in files:
         read = _decode_leda(file, data_format)
         dicts.update(read)
 
     gals = dict(
-        (k, Galaxy(Vector.get_sph([v['Dist'], v['dec'] / 180 * np.pi, v['ra'] / 180 * np.pi]), v['VLG']))
+        (k, Galaxy(Vector.get_sph([v[dist], v[dec] / 180 * np.pi, v[ra] / 180 * np.pi]), v[vel]))
         for k, v in dicts.items()
     )
 
