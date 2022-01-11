@@ -4,6 +4,7 @@ from typing import Callable, Union
 from abc import ABC, abstractmethod
 from astropy.cosmology import WMAP9 as cosmo
 from astropy.units import Quantity
+import math
 
 from eq_10 import Solver
 from observation_model import VelocityField
@@ -91,3 +92,32 @@ class DenseDistField(VelocityField):
         h = self.solver.h(alpha)
         v = h * coord.r
         return Vector.get_sph([v, coord.lat, coord.lon])
+
+
+class DenseDistMassMwM31(DenseDistField):
+    """Dense distribution field with mass center between Milky Way and M31"""
+    def __init__(self, mw: Vector, m31: Vector, distribution: Union[str, DensDistr]):
+        """
+        :param mw: Milky way coordinates
+        :param m31: M31 coordinates
+        :param distribution: Mass distribution type
+        """
+        self.mw_m31 = m31 - mw
+        self.mw = mw
+        super().__init__(distribution)
+
+    def field(self, coord: Vector, L0, w) -> Vector:
+        """
+        :param coord: Coordinates
+        :param L0: Model parameter
+        :param w: Relative position on vector MW - M31. If w=0, mass center should be in MW, if w=1, in M31
+        :return: Field vector in coord
+        """
+        center = self.mw + self.mw_m31 * w
+        transformed = coord - center
+        profile = self.distribution.model(L0)
+        sigma = profile(transformed.r)
+        alpha = sigma / self.options.omega_l_0
+        h = self.solver.h(alpha)
+        v = h * transformed.r
+        return Vector.get_sph([v, transformed.lat, transformed.lon])

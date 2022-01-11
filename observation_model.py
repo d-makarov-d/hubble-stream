@@ -106,6 +106,47 @@ class VelocityField(ABC):
 
         return res_v, res_r, res.x[6:], var * sigma
 
+    def fit_model_fixed_pos(
+            self, galaxies: Iterable[Galaxy],
+            r0: Vector, x0: np.ndarray = None
+    ) -> tuple[Vector, np.ndarray, np.ndarray]:
+        """Fits the model to observation data, finding observer velocity
+        :param galaxies: Observation data
+        :param r0: Observer position
+        :param x0: Initial guess
+        :return
+            res_v: Vector, Observer velocity
+            res_p: np.ndarray, Model params
+            errors: np.ndarray, Errors [:3] for res_v, [3:] for other params
+        """
+        obs_vels = np.array(tuple(gal.velocity for gal in galaxies))
+        n_jobs = mp.cpu_count() - 1
+        if len(obs_vels) < n_jobs:
+            n_jobs = 1
+        par = Parallel(n_jobs)
+
+        def f(v):
+            vel = Vector.get_cart(v[:3])
+            p = v[3:]
+            model_vels = np.array(par(
+                delayed(lambda coord: self.velocity(r0, vel, coord, *p))(gal.coordinates)
+                for gal in galaxies
+            ))
+
+            return obs_vels - model_vels
+
+        n_additional_params = len(signature(self.field).parameters) - 1
+        if x0 is None:
+            x0 = [0, 0, 0] + n_additional_params * [1]
+        res = optimize.least_squares(f, x0)
+        res_v = Vector.get_cart(res.x[:3])
+
+        cov = np.linalg.inv(res.jac.T.dot(res.jac))
+        var = np.sqrt(np.diagonal(cov))
+        sigma = (sum(res.fun ** 2) / len(res.fun)) ** 0.5
+
+        return res_v, res.x[3:], var * sigma
+
     @abstractmethod
     def field(self, coord: Vector, *params) -> Vector:
         """Returns expected velocity vector for given coordinates, relative to mass center"""

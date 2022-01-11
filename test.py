@@ -8,7 +8,7 @@ from astropy import units as u
 
 from eq_10 import Solver
 from observation_model import VelocityField, Galaxy
-from physics import PhysicOptions, Point, Halo, Empty, DenseDistField
+from physics import PhysicOptions, Point, Halo, Empty, DenseDistField, DenseDistMassMwM31
 from util import Vector, _cartesian_to_spherical, draw_vectors, least_square_xy, J
 from files import load_vizier, load_leda
 
@@ -277,7 +277,7 @@ class ModelTest(unittest.TestCase):
         vels = tuple(model.field(c, h0=h0) for c in coords)
 
         sun_coords = Vector(np.random.uniform(2, 3, 3))
-        sun_vel = model.field(sun_coords, h0=h0) * Vector.unit(Vector.get_cart(np.random.uniform(-1, 1, 3))) * 10
+        sun_vel = model.field(sun_coords, h0=h0) * Vector.unit(Vector.get_cart(np.random.uniform(-1, 1, 3))) * 100
 
         gals = tuple(
             Galaxy(coord - sun_coords, Vector.unit(coord - sun_coords).dot(vel - sun_vel))
@@ -384,6 +384,20 @@ class ModelTest(unittest.TestCase):
         print(f"V0:    {res_v} +- {errors[3:6]}")
         print(f"L0:    {p[0]} +- {errors[6:]}")
 
+    def test_lv_unverial_point_model_fixed(self):
+        gals = load_leda(['data/lv.dat'])
+        invalid_gals = ['MESSIER031', 'Milky Way', 'HIZOA J1353-58', 'ESO006-001', 'dw1322-39']
+        mw = gals['Milky Way'].coordinates
+        for g in invalid_gals:
+            gals.pop(g)
+        model = DenseDistField('point')
+
+        res_v, p, errors = model.fit_model_fixed_pos(tuple(gals.values()), r0=mw)
+
+        print(f"V0:    {res_v} +- {errors[:3]}")
+        print(f"L0:    {p[0]} +- {errors[3:]}")
+        print(f"V0 galactic {res_v.coords_icrs(u.km / u.s).galactic}")
+
     def test_reference(self):
         """Compare new implementation to the reference implementation values"""
         gals = load_leda(['data/reference.dat'], ra='l', dec='b', dist='Dist', vel='Vh').values()
@@ -403,3 +417,16 @@ class ModelTest(unittest.TestCase):
         l = v.lon / np.pi * 180
         b = v.lat / np.pi * 180
         self.assertEqual(ref_unverial, [np.round(l, 1), np.round(b, 1), np.round(v.r), np.round(h)])
+
+    def test_mass_mw_m31(self):
+        gals = load_leda(['data/lv.dat'])
+        model = DenseDistMassMwM31(gals['MESSIER031'].coordinates, gals['Milky Way'].coordinates, 'point')
+        invalid_gals = ['MESSIER031', 'Milky Way', 'HIZOA J1353-58', 'ESO006-001', 'dw1322-39']
+        for g in invalid_gals:
+            gals.pop(g)
+
+        res_v, p, errors = model.fit_model_fixed_pos(tuple(gals.values()), model.mw, [0, 0, 0, 1, 0.5])
+
+        print(f"V0:    {res_v} +- {errors[:3]}")
+        print(f"L0, w:    {p} +- {errors[3:]}")
+        print(f"V0 galactic {res_v.coords_icrs(u.km / u.s).galactic}")
