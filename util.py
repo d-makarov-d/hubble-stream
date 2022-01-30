@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from vector import Vector as MVector
 
 
-def draw_vectors(coords: Sequence[Vector], vectors: Sequence[Vector], norm_len=None):
+def draw_vectors(ax, coords: Sequence[Vector], vectors: Sequence[Vector], norm_len=None, **dot_params):
     dots = np.zeros((len(coords), 3))
     vels = np.zeros((len(coords) * 3, 3))
     for i, (coord, vect) in enumerate(zip(coords, vectors)):
@@ -25,13 +25,8 @@ def draw_vectors(coords: Sequence[Vector], vectors: Sequence[Vector], norm_len=N
     if norm_len is not None:
         vects /= max(np.sum(vects**2, axis=1)**0.5) / norm_len
     vects += vels[0::3, :]
-    fig = plt.figure()
-    ax = fig.add_subplot(projection='3d')
-    c = np.array(len(coords) // 2 * ['r'])
-    c = np.concatenate([c, np.array(len(coords) // 2 * ['g'])])
-    ax.scatter(dots[:, 0], dots[:, 1], dots[:, 2], s=2, c=c)
+    ax.scatter(dots[:, 0], dots[:, 1], dots[:, 2], **dot_params)
     ax.plot(vels[:, 0], vels[:, 1], vels[:, 2], 'r', alpha=0.3)
-    plt.show()
 
 
 def J(x0: np.ndarray, f: Callable[[np.ndarray], np.ndarray]) -> np.ndarray:
@@ -46,6 +41,31 @@ def J(x0: np.ndarray, f: Callable[[np.ndarray], np.ndarray]) -> np.ndarray:
         jac[:, i] = (f(x0 + step) - f(x0)) / dx
 
     return jac
+
+
+def dec_vector_str(v: Vector, err: Vector) -> str:
+    """
+    Returns string representation of given vector with errors, in galactic coordinates
+    :param v: Value, in cartesian coordinates
+    :param err: Error for each value component, in cartesian coordinates
+    :return: String representation in galactic coordinates, with error
+    """
+    x, y, z = v.cart
+    r = v.r
+    t1 = ((x**2 + y**2) / (x**2 + y**2 + z**2))**0.5
+    t2 = (x**2 + y**2 + z**2)**1.5
+    m = np.array([
+        [x/r, y/r, z/r],                                # dr/dx, dr/dy, dr/dz
+        [x*z / (t1 * t2), y*z / (t1 * t2), t1 / r],     # d(lat)/dx, d(lat)/dy, d(lat)/dz
+        [- y / (x**2 + y**2), x / (x**2 + y**2), 0]     # d(lon)/dx, d(lon)/dy, d(lon)/dz
+    ])
+    s = np.array([err.cart]).T
+    # galactic coordinates errors
+    g_err = np.matmul(m, s)
+    g_coord = v.coords_icrs(u.km / u.s).galactic
+    return f"l: {g_coord.l.deg} +- {g_err[2] / np.pi * 180} deg" \
+           f"b: {g_coord.b.deg} +- {g_err[1] / np.pi * 180} deg" \
+           f"r: {g_coord.r.km} +- {g_err[0]} km"
 
 
 def _cartesian_to_spherical(vect: np.ndarray) -> np.ndarray:

@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import random
 from scipy import optimize
 from astropy import units as u
+from astropy import constants as const
 
 from eq_10 import Solver
 from observation_model import VelocityField, Galaxy
@@ -158,7 +159,11 @@ class TestFiles(unittest.TestCase):
         coords = [gal.coordinates for gal in gals.values()]
         vels = [gal.velocity for gal in gals.values()]
         vels = [Vector.get_sph([v, c.lat, c.lon]) for v, c in zip(vels, coords)]
-        draw_vectors(coords, vels, norm_len=30)
+
+        fig = plt.figure()
+        ax = fig.add_subplot(projection='3d')
+        draw_vectors(ax, coords, vels, norm_len=30, s=2)
+        plt.show()
 
     def _test_save_matlab(self):
         gals = load_vizier(['data/table2.dat'], ['data/vel1.dat'])
@@ -357,6 +362,170 @@ class ModelTest(unittest.TestCase):
         ax[1].hist(pec_v)
         ax[1].set_title('Pecular velocities')
         plt.show()
+
+
+    def test_lv_unverial_mw_m31_zones_plot(self):
+        gals = load_leda(['data/lv.dat'], vel='VLG')
+        gals = dict((k, v) for k, v in gals.items() if v.coordinates.r < 1.5)
+        mw = gals['Milky Way']
+        andromeda = gals['MESSIER031']
+        gals.pop('Milky Way')
+        gals.pop('MESSIER031')
+
+        coords = [g.coordinates for g in gals.values()]
+        vels = [Vector.get_sph([g.velocity, g.coordinates.lat, g.coordinates.lon]) for g in gals.values()]
+
+        fig = plt.figure()
+        ax = fig.add_subplot(projection='3d')
+        draw_vectors(ax, coords, vels, norm_len=2, s=5)
+        ax.scatter(*mw.coordinates.cart, s=10, c='r')
+        ax.text(*mw.coordinates.cart, 'Milky Way')
+        ax.scatter(*andromeda.coordinates.cart, s=10, c='r')
+        ax.text(*andromeda.coordinates.cart, 'M31')
+
+        r_mw = []
+        r_m31 = []
+        c = []
+        fig = plt.figure()
+        ax = fig.add_subplot()
+        ax.set_xlabel('Dist from MW')
+        ax.set_ylabel('Dist from M31')
+        for name, gal in gals.items():
+            r_mw.append((gal.coordinates - mw.coordinates).r)
+            r_m31.append((gal.coordinates - andromeda.coordinates).r)
+            c.append(gal.velocity)
+            ax.annotate(name, [r_mw[-1], r_m31[-1]])
+        sc = ax.scatter(r_mw, r_m31, c=c, cmap=plt.get_cmap('cool'))
+        plt.colorbar(sc)
+
+        plt.show()
+
+    def test_close_to_mw(self):
+        gals = load_leda(['data/lv_all.dat'], vel='Vh')
+        gals = dict((k, v) for k, v in gals.items() if v.coordinates.r < 1.5)
+        mw = gals['Milky Way']
+        andromeda = gals['MESSIER031']
+        gals.pop('Milky Way')
+        gals.pop('MESSIER031')
+        v_apex = PhysicOptions().apex
+        for gal in gals.values():
+            gal.velocity = gal.velocity + v_apex.dot(Vector.unit(gal.coordinates))
+
+        r_mw = []
+        r_m31 = []
+        c = []
+        fig = plt.figure()
+        ax = fig.add_subplot()
+        ax.set_xlabel('Dist from MW')
+        ax.set_ylabel('Dist from M31')
+        for name, gal in gals.items():
+            r_mw.append((gal.coordinates - mw.coordinates).r)
+            r_m31.append((gal.coordinates - andromeda.coordinates).r)
+            d = gal.coordinates
+            r = d - mw.coordinates
+            # v = (gal.velocity + v_apex.dot(d) / abs(d)) * (abs(r) * abs(d)) / (r.dot(d))
+            v = abs(d - mw.coordinates) * abs(d) / (abs(d) ** 2 - mw.coordinates.dot(d)) * gal.velocity
+            c.append(v)
+            ax.annotate(name, [r_mw[-1], r_m31[-1]])
+        sc = ax.scatter(r_mw, r_m31, c=c, cmap=plt.get_cmap('cool'))
+        plt.colorbar(sc)
+        plt.show()
+
+    def test_mass_mw(self):
+        gals = load_leda(['data/lv_all.dat'], vel='Vh')
+        mw = gals['Milky Way']
+        andromeda = gals['MESSIER031']
+        gals.pop('Milky Way')
+        gals.pop('MESSIER031')
+        options = PhysicOptions(0.3, H0=73)
+        v_apex = options.apex
+        for gal in gals.values():
+            gal.velocity = gal.velocity + v_apex.dot(Vector.unit(gal.coordinates))
+
+        selected_gals = [gals['Eridanus 2'], gals['LeoT'], gals['Phoenix']]
+        """selected_gals = list(
+            v for v in gals.values()
+            if 0.2 < (v.coordinates - mw.coordinates).r < 0.47 and (v.coordinates - mw.coordinates).r < (v.coordinates - andromeda.coordinates).r
+        )"""
+        solver = Solver(options)
+        _, ax = plt.subplots(1, 2)
+        ax_u_r = ax[0]
+        ax_m_r = ax[1]
+        ax_u_r.set_title('U(R)')
+        ax_m_r.set_title('Mm(R)')
+        masses = []
+        for gal in selected_gals:
+            d = gal.coordinates
+            r = d - mw.coordinates
+            # u = (gal.velocity + v_apex.dot(d) / abs(d)) * (abs(r) * abs(d)) / (r.dot(d))
+            v = abs(d - mw.coordinates) * abs(d) / (abs(d) ** 2 - mw.coordinates.dot(d)) * gal.velocity
+            ax_u_r.scatter(r.r, v)
+
+            r_mpc = r.r
+            h = v / r_mpc
+            a = solver.a(h)
+            Mm = a * options.omega_l_0 * 4 * np.pi * r_mpc ** 3. * options.rho0 / 3.
+            masses.append(Mm)
+            ax_m_r.scatter(r.r, Mm)
+
+        plt.show()
+        print("Mass of MW: %s +- %s" % (
+            np.format_float_scientific(np.mean(masses)),
+            np.format_float_scientific(np.std(masses))
+        ))
+
+    def test_mass_m31(self):
+        gals = load_leda(['data/lv_all.dat'], vel='Vh')
+        mw = gals['Milky Way']
+        andromeda = gals['MESSIER031']
+        gals.pop('Milky Way')
+        gals.pop('MESSIER031')
+        options = PhysicOptions(0.3, H0=73)
+        v_apex = options.apex
+        for gal in gals.values():
+            gal.velocity = gal.velocity + v_apex.dot(Vector.unit(gal.coordinates))
+
+        selected_gals = [gals['IC1613'], gals['And XVIII'], gals['Pegasus']]
+        selected_gals = dict(
+            (k, v) for k, v in gals.items()
+            if (v.coordinates - andromeda.coordinates).r < 0.58 and (v.coordinates - mw.coordinates).r > (v.coordinates - andromeda.coordinates).r
+        )
+        solver = Solver(options)
+        _, ax = plt.subplots(1, 2)
+        ax_u_r = ax[0]
+        ax_m_r = ax[1]
+        ax_u_r.set_title('U(R)')
+        ax_m_r.set_title('Mm(R)')
+        masses = []
+        for k, gal in selected_gals.items():
+            d = gal.coordinates
+            dm31 = andromeda.coordinates
+            r = d - dm31
+            D = dm31 - mw.coordinates
+            v_gal = gal.velocity
+            v_m31 = andromeda.velocity
+            print([abs(r) * abs(d) / r.dot(d), D.dot(d) / D.dot(dm31) * abs(dm31) / abs(d)])
+            v = abs(r) * abs(d) / r.dot(d) * (v_gal - v_m31 * D.dot(d) / D.dot(dm31) * abs(dm31) / abs(d))
+
+            try:
+                r_mpc = r.r
+                h = v / r_mpc
+                a = solver.a(h)
+                Mm = a * options.omega_l_0 * 4 * np.pi * r_mpc ** 3. * options.rho0 / 3.
+                masses.append(Mm)
+                ax_m_r.scatter(r.r, Mm)
+                ax_m_r.annotate(k, [r.r, Mm])
+
+                ax_u_r.scatter(r.r, v, c='g')
+                ax_u_r.annotate(k, [r.r, v])
+            except ValueError as e:
+                ax_u_r.scatter(r.r, v, c='r')
+
+        plt.show()
+        print("Mass of M31: %s +- %s" % (
+            np.format_float_scientific(np.mean(masses)),
+            np.format_float_scientific(np.std(masses))
+        ))
 
     def test_lv_unverial_model_fit(self):
         gals = load_leda(['data/lv.dat'])

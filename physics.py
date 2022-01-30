@@ -3,6 +3,9 @@
 from typing import Callable, Union
 from abc import ABC, abstractmethod
 from astropy.cosmology import WMAP9 as cosmo
+import astropy.constants as const
+import astropy.units as u
+from astropy.coordinates import SkyCoord
 from astropy.units import Quantity
 import math
 
@@ -35,6 +38,16 @@ class PhysicOptions:
     @property
     def H0(self) -> float:
         return self._H0.value
+
+    @property
+    def rho0(self):
+        h_si = (self.H0*(u.km / u.Mpc / u.s)).to(1/u.s)
+        rho_si = 3 * h_si ** 2 / (8 * math.pi * const.G)
+        return rho_si.to(u.M_sun / u.Mpc ** 3).value
+
+    @property
+    def apex(self) -> Vector:
+        return Vector.get_cart([115.9267, -120.4386, 183.6051])
 
 
 class DensDistr(ABC):
