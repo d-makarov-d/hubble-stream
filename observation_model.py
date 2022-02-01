@@ -147,6 +147,45 @@ class VelocityField(ABC):
 
         return res_v, res.x[3:], var * sigma
 
+    def fit_model_fixed_apex(self, galaxies: Sequence[Galaxy], apex: Vector, x0=None):
+        """
+        Fits model with predefined apex
+        :param galaxies: Observation data
+        :param apex: Apex
+        :param x0: Optional, initial params
+        :return:
+            res: np.ndarray fitted params
+            err: np.ndarray errors
+        """
+        obs_vels = np.zeros(len(galaxies))
+        # apply apex
+        for i, gal in enumerate(galaxies):
+            obs_vels[i] = gal.velocity + apex.dot(Vector.unit(gal.coordinates))
+        n_jobs = mp.cpu_count() - 1
+        if len(obs_vels) < n_jobs:
+            n_jobs = 1
+        par = Parallel(n_jobs)
+
+        def f(v):
+            model_vels = np.array(par(
+                delayed(lambda coord: self.field(coord, *v).dot(Vector.unit(coord)))(gal.coordinates)
+                for gal in galaxies
+            ))
+
+            return obs_vels - model_vels
+
+        n_additional_params = len(signature(self.field).parameters) - 1
+        if x0 is None:
+            x0 = n_additional_params * [1]
+
+        res = optimize.least_squares(f, x0)
+
+        cov = np.linalg.inv(res.jac.T.dot(res.jac))
+        var = np.sqrt(np.diagonal(cov))
+        sigma = (sum(res.fun ** 2) / len(res.fun)) ** 0.5
+
+        return res, var*sigma
+
     @abstractmethod
     def field(self, coord: Vector, *params) -> Vector:
         """Returns expected velocity vector for given coordinates, relative to mass center"""

@@ -107,6 +107,29 @@ class DenseDistField(VelocityField):
         return Vector.get_sph([v, coord.lat, coord.lon])
 
 
+class TwoMassDenseDistField(VelocityField):
+    def __init__(self, opts: PhysicOptions, distr_mw: str, dist_m31: str):
+        self.solver = Solver(opts)
+        self.options = opts
+        self.distr_mw = self._get_distr_cls(distr_mw)
+        self.distr_m31 = self._get_distr_cls(dist_m31)
+
+    def _get_distr_cls(self, dist_name) -> DensDistr:
+        name_to_class = {
+            'halo': Halo,
+            'point': Point,
+            'empty': Empty
+        }
+        cls = name_to_class.get(dist_name)
+        if cls is None:
+            raise ValueError(f'distribution must be in ["halo", "point", "empty"], got "{dist_name}"')
+
+        return cls
+
+    def field(self, coord: Vector, LMW: float, LM31: float) -> Vector:
+        
+
+
 class DenseDistMassMwM31(DenseDistField):
     """Dense distribution field with mass center between Milky Way and M31"""
     def __init__(self, mw: Vector, m31: Vector, distribution: Union[str, DensDistr]):
