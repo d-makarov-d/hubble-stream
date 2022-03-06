@@ -9,7 +9,7 @@ from astropy import constants as const
 
 from eq_10 import Solver
 from observation_model import VelocityField, Galaxy
-from physics import PhysicOptions, Point, Halo, Empty, DenseDistField, DenseDistMassMwM31
+from physics import PhysicOptions, Point, Halo, Empty, DenseDistField, DenseDistMassMwM31, TwoMassDenseDistField
 from util import Vector, _cartesian_to_spherical, draw_vectors, least_square_xy, J
 from files import load_vizier, load_leda
 
@@ -599,3 +599,17 @@ class ModelTest(unittest.TestCase):
         print(f"V0:    {res_v} +- {errors[:3]}")
         print(f"L0, w:    {p} +- {errors[3:]}")
         print(f"V0 galactic {res_v.coords_icrs(u.km / u.s).galactic}")
+
+    def test_two_point_field(self):
+        gals = load_leda(['data/lv.dat'])
+        gals = dict((k, v) for k, v in gals.items() if v.coordinates.r < 1.5)
+        mw = gals['Milky Way']
+        andromeda = gals['MESSIER031']
+        gals.pop('Milky Way')
+        gals.pop('MESSIER031')
+        opts = PhysicOptions(omega_m_0=0.3, H0=72.0)
+
+        model = TwoMassDenseDistField(opts, mw.coordinates, andromeda.coordinates, 'point', 'point')
+        res, err = model.fit_model_fixed_apex(gals.values(), opts.apex)
+        print(res)
+        print(err)

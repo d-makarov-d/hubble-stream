@@ -167,10 +167,11 @@ class VelocityField(ABC):
         par = Parallel(n_jobs)
 
         def f(v):
-            model_vels = np.array(par(
+            """model_vels = np.array(par(
                 delayed(lambda coord: self.field(coord, *v).dot(Vector.unit(coord)))(gal.coordinates)
                 for gal in galaxies
-            ))
+            ))"""
+            model_vels = np.array([self.field(gal.coordinates, *v).dot(Vector.unit(gal.coordinates)) for gal in galaxies])
 
             return obs_vels - model_vels
 

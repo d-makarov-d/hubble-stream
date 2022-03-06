@@ -108,17 +108,19 @@ class DenseDistField(VelocityField):
 
 
 class TwoMassDenseDistField(VelocityField):
-    def __init__(self, opts: PhysicOptions, distr_mw: str, dist_m31: str):
+    def __init__(self, opts: PhysicOptions, mw: Vector, m31: Vector, distr_mw: str, dist_m31: str):
         self.solver = Solver(opts)
         self.options = opts
-        self.distr_mw = self._get_distr_cls(distr_mw)
-        self.distr_m31 = self._get_distr_cls(dist_m31)
+        self.mw = mw
+        self.m31 = m31
+        self.distr_mw = self._get_distr_cls(distr_mw, opts)
+        self.distr_m31 = self._get_distr_cls(dist_m31, opts)
 
-    def _get_distr_cls(self, dist_name) -> DensDistr:
+    def _get_distr_cls(self, dist_name: str, opts: PhysicOptions) -> DensDistr:
         name_to_class = {
-            'halo': Halo,
-            'point': Point,
-            'empty': Empty
+            'halo': Halo(opts),
+            'point': Point(opts),
+            'empty': Empty(opts)
         }
         cls = name_to_class.get(dist_name)
         if cls is None:
@@ -126,8 +128,31 @@ class TwoMassDenseDistField(VelocityField):
 
         return cls
 
+    def _calc_speed(self, sigma, coord):
+        alpha = sigma / self.options.omega_l_0
+        h = self.solver.h(alpha)
+        v = h * coord.r
+        return Vector.get_sph([v, coord.lat, coord.lon])
+
     def field(self, coord: Vector, LMW: float, LM31: float) -> Vector:
-        
+        sigma_m31 = self.distr_m31.model(LM31)(coord.r)
+        sigma_mw = self.distr_mw.model(LMW)(coord.r)
+        eps_lm31 = sigma_m31 * LM31 ** 3
+        eps_lmw = sigma_mw * LMW ** 3
+        gama =  eps_lm31  / (eps_lmw + eps_lm31)
+
+        a = coord - self.mw
+        b = coord - self.m31
+        D = gama * (self.m31 - self.mw)
+        r = coord - self.mw - D
+
+        Umw = a * (self._calc_speed(sigma_mw, coord).r / a.r - self.options.H0)
+        Um31 = b * (self._calc_speed(sigma_m31, coord).r / b.r - self.options.H0)
+
+        Vcm = self.options.H0*r + Umw + Um31
+        Vmw = D * (self.options.H0 * (1 - gama) - self._calc_speed(sigma_m31, D))
+
+        return (Vcm - Vmw) * Vector.unit(coord)
 
 
 class DenseDistMassMwM31(DenseDistField):
