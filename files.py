@@ -34,14 +34,14 @@ def _decode_vizier_line(line: str) -> tuple[str, dict[str, Any]]:
     return read.pop('Name'), read
 
 
-def _decode_leda(file: str, fmt: dict) -> dict[str, dict]:
+def _decode_leda(file: str, fmt: dict, name: str) -> dict[str, dict]:
     with open(file, 'r') as f:
         header = f.readline()
         col_names = header.split('|')
         col_names = [name.strip(' \n') for name in col_names]
         mask_selected = [name in fmt.keys() for name in col_names]
         i_selected = np.arange(len(col_names))[mask_selected]
-        i_id = col_names.index('name')
+        i_id = col_names.index(name)
 
         def extract_cols(line: str) -> tuple[str, dict]:
             values = line.split('|')
@@ -196,7 +196,7 @@ def load_vizier(files: Iterable[str], vel: Iterable[str]) -> dict[str, Galaxy]:
     return galaxies
 
 
-def load_leda(files: Iterable[str], ra='ra', dec='dec', dist='Dist', vel='Vh'):
+def load_leda(files: Iterable[str], ra='ra', dec='dec', dist='Dist', vel='Vh', name='name'):
     dicts = dict()
     data_format = {
         ra: float,
@@ -205,7 +205,7 @@ def load_leda(files: Iterable[str], ra='ra', dec='dec', dist='Dist', vel='Vh'):
         vel: float
     }
     for file in files:
-        read = _decode_leda(file, data_format)
+        read = _decode_leda(file, data_format, name)
         dicts.update(read)
 
     gals = dict(

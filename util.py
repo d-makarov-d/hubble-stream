@@ -8,6 +8,7 @@ from scipy.optimize._lsq.common import \
 from astropy.coordinates import cartesian_to_spherical, spherical_to_cartesian
 from astropy.coordinates import SkyCoord
 from astropy import units as u
+import healpy as hp
 from typing import Iterable, Sequence, Any, Callable, Union
 import matplotlib.pyplot as plt
 from vector import Vector as MVector
@@ -27,6 +28,73 @@ def draw_vectors(ax, coords: Sequence[Vector], vectors: Sequence[Vector], norm_l
     vects += vels[0::3, :]
     ax.scatter(dots[:, 0], dots[:, 1], dots[:, 2], **dot_params)
     ax.plot(vels[:, 0], vels[:, 1], vels[:, 2], 'r', alpha=0.3)
+
+
+def _apply_dust(ax, coords: str) -> np.ndarray:
+    extinction_map = hp.read_map('../heavy_data/HFI_SkyMap_857_2048_R1.10_nominal.fits')
+    proj = hp.projector.CartesianProj()
+    nside = hp.npix2nside(len(extinction_map))
+
+    def f_icrs(X, Y, Z):
+        r, lat, lon = cartesian_to_spherical(X, Y, Z)
+        frame = SkyCoord(l=(130 / 180 * np.pi * u.rad - lon).wrap_at('180d'), b=lat, distance=r, frame='galactic').icrs
+        x, y, z = spherical_to_cartesian(frame.distance, frame.dec.rad, -frame.ra.rad - np.pi / 4)
+        return hp.vec2pix(nside, x.value, y.value, z.value)
+
+    def f_galactic(X, Y, Z):
+        r, lat, lon = cartesian_to_spherical(X, Y, Z)
+        x, y, z = spherical_to_cartesian(r, lat, (lon - np.pi * u.rad).wrap_at('180d'))
+        return hp.vec2pix(nside, x.value, y.value, z.value)
+
+    type_to_f = {
+        'galactic': f_galactic,
+        'icrs': f_icrs
+    }
+    f = type_to_f.get(coords)
+    if f is None:
+        raise ValueError('Unknown coordinate system "%s". supported are: %s' % (coords, list(type_to_f.keys())))
+
+    im = proj.projmap(extinction_map, vec2pix_func=f)
+    im[im < 7] = np.nan
+    im = np.log(im - 5)
+    x = np.linspace(-np.pi, np.pi, im.shape[1])
+    y = np.linspace(-np.pi / 2, np.pi / 2, im.shape[0])
+    X, Y = np.meshgrid(x, y)
+    ax.pcolormesh(X, Y, im, cmap='Greys')
+
+
+def scatter_skymap(points: Sequence[Vector], coords: str, ax = None, **plt_params):
+    """Draw points on skymap of dust extinction using aitoff projection"""
+    if ax is None:
+        fig = plt.figure()
+        ax = fig.add_subplot(projection='aitoff')
+
+    _apply_dust(ax, coords)
+
+    dots = np.zeros((len(points), 2))
+
+    if coords == 'icrs':
+        for i in range(0, len(points)):
+            gal = points[i].coords_icrs(u.kpc)
+            dots[i, :] = ((180 * u.deg - gal.ra).wrap_at('180d').rad, gal.dec.rad)
+    elif coords == 'galactic':
+        for i in range(0, len(points)):
+            gal = points[i].coords_icrs(u.kpc).galactic
+            dots[i, :] = (np.pi - gal.l.rad, gal.b.rad)
+    else:
+        raise ValueError('Unsupported coordinate system')
+
+    ax.grid(True)
+    sc = ax.scatter(dots[:, 0], dots[:, 1], **plt_params)
+    return sc
+
+def text_galactic(ax, text: str, pos: Vector, **params):
+    gal = pos.coords_icrs(u.kpc).galactic
+    ax.text(np.pi - gal.l.rad, gal.b.rad, text)
+
+def text_icrs(ax, text: str, pos: Vector, **params):
+    gal = pos.coords_icrs(u.kpc)
+    ax.text((180 * u.deg - gal.ra).wrap_at('180d').rad, gal.dec.rad, text)
 
 
 def J(x0: np.ndarray, f: Callable[[np.ndarray], np.ndarray]) -> np.ndarray:
@@ -291,7 +359,7 @@ class Vector(MVector):
         cart = _spherical_to_cartesian(np.array(sph))
         return Vector(cart)
 
-    def coords_icrs(self, units):
+    def coords_icrs(self, units = u.Unit()):
         return SkyCoord(ra=self.lon*u.rad, dec=self.lat*u.rad, distance=self.r*units, frame='icrs')
 
     @staticmethod

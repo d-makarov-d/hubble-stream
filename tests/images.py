@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from files import load_leda
 from observation_model import Galaxy
 from physics import PhysicOptions
-from util import Vector, draw_vectors
+from util import Vector, draw_vectors, scatter_skymap, text_galactic, text_icrs
 
 class Test(unittest.TestCase):
     def test_lv_unverial_plot(self):
@@ -99,4 +99,28 @@ class Test(unittest.TestCase):
             ax.annotate(name, [r_mw[-1], r_m31[-1]])
         sc = ax.scatter(r_mw, r_m31, c=c, cmap=plt.get_cmap('cool'))
         plt.colorbar(sc)
+        plt.show()
+
+    def test_plot_galaxies_distances_galactic(self):
+        gals = load_leda(['../data/mw_satellites.dat'], ra='RAdeg', dec='DEdeg', dist='Dkpc', vel='Vh', name='Name')
+        mw = load_leda(['../data/lv_all.dat'])['Milky Way']
+        gals = dict((k, v) for k, v in gals.items() if np.log10((v.coordinates - mw.coordinates).r) < 2.5)
+        d_mw = [(g.coordinates - mw.coordinates).r for g in gals.values()]
+        d_mw = np.log10(d_mw)
+        sc = scatter_skymap([v.coordinates for v in gals.values()], coords='galactic', c=d_mw, cmap='jet')
+        plt.colorbar(sc, orientation='horizontal')
+        text_galactic(plt.gca(), 'SMC', gals['SMC'].coordinates)
+        text_galactic(plt.gca(), 'LMC', gals['LMC'].coordinates)
+        plt.show()
+
+    def test_plot_galaxies_distances_icrs(self):
+        gals = load_leda(['../data/mw_satellites.dat'], ra='RAdeg', dec='DEdeg', dist='Dkpc', vel='Vh', name='Name')
+        mw = load_leda(['../data/lv_all.dat'])['Milky Way']
+        gals = dict((k, v) for k, v in gals.items() if np.log10((v.coordinates - mw.coordinates).r) < 2.5)
+        d_mw = [(g.coordinates - mw.coordinates).r for g in gals.values()]
+        d_mw = np.log10(d_mw)
+        sc = scatter_skymap([v.coordinates for v in gals.values()], coords='icrs', c=d_mw, cmap='jet')
+        plt.colorbar(sc, orientation='horizontal')
+        text_icrs(plt.gca(), 'SMC', gals['SMC'].coordinates)
+        text_icrs(plt.gca(), 'LMC', gals['LMC'].coordinates)
         plt.show()
