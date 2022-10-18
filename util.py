@@ -37,8 +37,8 @@ def _apply_dust(ax, coords: str) -> np.ndarray:
 
     def f_icrs(X, Y, Z):
         r, lat, lon = cartesian_to_spherical(X, Y, Z)
-        frame = SkyCoord(l=(130 / 180 * np.pi * u.rad - lon).wrap_at('180d'), b=lat, distance=r, frame='galactic').icrs
-        x, y, z = spherical_to_cartesian(frame.distance, frame.dec.rad, -frame.ra.rad - np.pi / 4)
+        frame = SkyCoord(l=0.75 * np.pi * u.rad - lon, b=lat, distance=r, frame='galactic').icrs
+        x, y, z = spherical_to_cartesian(frame.distance, frame.dec.rad, np.pi * 1.75 - frame.ra.rad)
         return hp.vec2pix(nside, x.value, y.value, z.value)
 
     def f_galactic(X, Y, Z):
@@ -85,6 +85,11 @@ def scatter_skymap(points: Sequence[Vector], coords: str, ax = None, **plt_param
         raise ValueError('Unsupported coordinate system')
 
     ax.grid(True)
+    ax.set_xticks(
+        np.linspace(-np.pi, np.pi, 13),
+        ['$24^h$', '', '', '$18^h$', '', '', '$12^h$', '', '', '$6^h$', '', '', '$0^h$']
+    )
+    ax.tick_params(direction='out')
     sc = ax.scatter(dots[:, 0], dots[:, 1], **plt_params)
     return sc
 

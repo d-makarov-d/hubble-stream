@@ -34,7 +34,7 @@ def _decode_vizier_line(line: str) -> tuple[str, dict[str, Any]]:
     return read.pop('Name'), read
 
 
-def _decode_leda(file: str, fmt: dict, name: str) -> dict[str, dict]:
+def _decode_leda(file: str, fmt: dict, name: str, verbose = False) -> dict[str, dict]:
     with open(file, 'r') as f:
         header = f.readline()
         col_names = header.split('|')
@@ -59,7 +59,8 @@ def _decode_leda(file: str, fmt: dict, name: str) -> dict[str, dict]:
                 gals[gal_name] = params
             except ValueError:
                 # TODO use logger
-                print('Error importing row %s' % line, end='')
+                if (verbose):
+                    print('Error importing row %s' % line, end='')
 
         return gals
 
@@ -196,7 +197,7 @@ def load_vizier(files: Iterable[str], vel: Iterable[str]) -> dict[str, Galaxy]:
     return galaxies
 
 
-def load_leda(files: Iterable[str], ra='ra', dec='dec', dist='Dist', vel='Vh', name='name'):
+def load_leda(files: Iterable[str], ra='ra', dec='dec', dist='Dist', vel='Vh', name='name',  verbose = False):
     dicts = dict()
     data_format = {
         ra: float,
@@ -205,7 +206,7 @@ def load_leda(files: Iterable[str], ra='ra', dec='dec', dist='Dist', vel='Vh', n
         vel: float
     }
     for file in files:
-        read = _decode_leda(file, data_format, name)
+        read = _decode_leda(file, data_format, name, verbose)
         dicts.update(read)
 
     gals = dict(
